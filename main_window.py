@@ -54,6 +54,14 @@ class MainWindow:
         self.preview_image = None
         self.preview_photo = None
         
+        # 拖拽相关
+        self.drag_start_x = 0
+        self.drag_start_y = 0
+        self.is_dragging = False
+        self.watermark_position = None  # 存储当前水印在预览中的位置
+        self.canvas_scale = 1.0  # 画布缩放比例
+        self.show_watermark_bounds = False  # 是否显示水印边界
+        
     def setup_variables(self):
         """设置UI变量"""
         # 水印设置
@@ -204,7 +212,8 @@ class MainWindow:
         
         ttk.Button(control_frame, text="适应窗口", command=self.fit_to_window).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(control_frame, text="原始尺寸", command=self.actual_size).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(control_frame, text="刷新预览", command=self.refresh_preview).pack(side=tk.LEFT)
+        ttk.Button(control_frame, text="刷新预览", command=self.refresh_preview).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(control_frame, text="显示边界", command=self.toggle_watermark_bounds).pack(side=tk.LEFT)
         
     def create_settings_panel(self):
         """创建设置面板"""
@@ -269,14 +278,25 @@ class MainWindow:
         font_combo = ttk.Combobox(font_frame, textvariable=self.font_family, 
                                  values=get_available_fonts(), state="readonly")
         font_combo.pack(fill=tk.X, pady=(0, 5))
-        font_combo.bind('<<ComboboxSelected>>', lambda e: self.refresh_preview())
+        font_combo.bind('<<ComboboxSelected>>', self.on_font_family_change)
         
         ttk.Label(font_frame, text="字号:").pack(anchor=tk.W)
         size_frame = ttk.Frame(font_frame)
         size_frame.pack(fill=tk.X)
-        ttk.Scale(size_frame, from_=8, to=100, variable=self.font_size, 
-                 orient=tk.HORIZONTAL, command=lambda v: self.refresh_preview()).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Label(size_frame, textvariable=self.font_size, width=3).pack(side=tk.RIGHT)
+        
+        # 字体大小滑块
+        font_scale = ttk.Scale(size_frame, from_=8, to=100, variable=self.font_size, 
+                              orient=tk.HORIZONTAL, command=self.on_font_size_change)
+        font_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        # 字体大小显示标签
+        size_label = ttk.Label(size_frame, textvariable=self.font_size, width=3)
+        size_label.pack(side=tk.RIGHT)
+        
+        # 字体大小输入框
+        size_entry = ttk.Entry(size_frame, textvariable=self.font_size, width=5)
+        size_entry.pack(side=tk.RIGHT, padx=(0, 5))
+        size_entry.bind('<Return>', lambda e: self.on_font_size_change())
         
         # 颜色设置
         color_frame = ttk.Frame(self.text_frame)
@@ -443,14 +463,21 @@ class MainWindow:
         """绑定事件"""
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
-        # 拖拽支持 - 简化实现
-        try:
-            # 尝试启用拖拽（可能需要额外的库）
-            self.root.drop_target_register('DND_Files')
-            self.root.dnd_bind('<<Drop>>', self.on_drop)
-        except:
-            # 如果拖拽不可用，跳过
-            pass
+        # 绑定拖拽事件到预览画布
+        self.preview_canvas.bind("<Button-1>", self.on_canvas_click)
+        self.preview_canvas.bind("<B1-Motion>", self.on_canvas_drag)
+        self.preview_canvas.bind("<ButtonRelease-1>", self.on_canvas_release)
+        self.preview_canvas.bind("<Motion>", self.on_canvas_motion)  # 绑定鼠标移动事件
+        
+        # 文件拖拽支持
+        self.setup_file_drag_drop()
+        
+        # 拖拽功能已移除，只保留水印拖拽
+    
+    def setup_file_drag_drop(self):
+        """设置文件拖拽支持（已移除）"""
+        # 文件拖拽功能已移除
+        pass
         
     def load_settings(self):
         """加载设置"""
@@ -486,6 +513,38 @@ class MainWindow:
             self.prefix_entry.pack(fill=tk.X, pady=(5, 0))
         elif self.naming_rule.get() == "suffix":
             self.suffix_entry.pack(fill=tk.X, pady=(5, 0))
+    
+    def on_font_size_change(self, value=None):
+        """字体大小改变事件"""
+        try:
+            # 确保字体大小在合理范围内
+            size = int(self.font_size.get())
+            if size < 8:
+                size = 8
+                self.font_size.set(8)
+            elif size > 100:
+                size = 100
+                self.font_size.set(100)
+            
+            print(f"字体大小改变为: {size}")  # 调试信息
+            
+            # 清空字体缓存以确保新字体大小生效
+            self.watermark_engine.clear_font_cache()
+            
+            # 刷新预览
+            self.refresh_preview()
+        except ValueError:
+            # 如果输入无效，重置为默认值
+            self.font_size.set(24)
+            self.watermark_engine.clear_font_cache()
+            self.refresh_preview()
+    
+    def on_font_family_change(self, event=None):
+        """字体族改变事件"""
+        # 清空字体缓存以确保新字体生效
+        self.watermark_engine.clear_font_cache()
+        # 刷新预览
+        self.refresh_preview()
             
     def choose_color(self):
         """选择颜色"""
@@ -606,12 +665,15 @@ class MainWindow:
                 # 创建水印
                 watermark = None
                 if watermark_config['type'] == 'text' and watermark_config['text_content']:
+                    print(f"创建文本水印: 内容='{watermark_config['text_content']}', 字体='{watermark_config['font_family']}', 大小={watermark_config['font_size']}")  # 调试信息
                     watermark = self.watermark_engine.create_text_watermark(
                         watermark_config['text_content'],
                         watermark_config['font_family'],
                         watermark_config['font_size'],
                         watermark_config['color'],
-                        watermark_config['opacity']
+                        watermark_config['opacity'],
+                        watermark_config.get('font_weight', 'normal'),
+                        watermark_config.get('font_style', 'normal')
                     )
                 elif watermark_config['type'] == 'image' and watermark_config.get('image_path'):
                     if os.path.exists(watermark_config['image_path']):
@@ -621,8 +683,13 @@ class MainWindow:
                             watermark_config['opacity']
                         )
                 
-                # 应用水印
+                # 应用水印并记录位置
                 if watermark:
+                    # 计算水印在原始图片上的位置
+                    watermark_pos = self._calculate_watermark_position(
+                        img.size, watermark.size, watermark_config
+                    )
+                    
                     img = self.watermark_engine.apply_watermark(
                         img, watermark,
                         watermark_config['position_preset'],
@@ -631,6 +698,8 @@ class MainWindow:
                         watermark_config.get('padding', 10),
                         watermark_config.get('rotation', 0)
                     )
+                else:
+                    watermark_pos = None
                 
                 # 转换为RGB用于显示
                 if img.mode == 'RGBA':
@@ -649,13 +718,13 @@ class MainWindow:
                 photo = ImageTk.PhotoImage(img)
                 
                 # 在主线程中更新UI
-                self.root.after(0, self._update_preview_ui, photo, img.size)
+                self.root.after(0, self._update_preview_ui, photo, img.size, watermark_pos)
                 
         except Exception as e:
             print(f"生成预览失败: {e}")
             self.root.after(0, self.clear_preview)
             
-    def _update_preview_ui(self, photo, size):
+    def _update_preview_ui(self, photo, size, watermark_pos=None):
         """更新预览UI（主线程）"""
         self.preview_photo = photo
         self.preview_canvas.delete("all")
@@ -667,6 +736,43 @@ class MainWindow:
         y = max(0, (canvas_height - size[1]) // 2)
         
         self.preview_canvas.create_image(x, y, anchor=tk.NW, image=photo)
+        
+        # 如果有水印位置信息，记录到画布坐标中
+        if watermark_pos:
+            # 计算缩放比例
+            scale_x = size[0] / self.image_manager.get_current_image().image_info['size'][0]
+            scale_y = size[1] / self.image_manager.get_current_image().image_info['size'][1]
+            self.canvas_scale = min(scale_x, scale_y)
+            
+            # 转换水印位置到画布坐标
+            wx, wy, ww, wh = watermark_pos
+            canvas_wx = x + wx * self.canvas_scale
+            canvas_wy = y + wy * self.canvas_scale
+            canvas_ww = ww * self.canvas_scale
+            canvas_wh = wh * self.canvas_scale
+            
+            self.watermark_position = (canvas_wx, canvas_wy, canvas_ww, canvas_wh)
+            
+            # 绘制水印区域边框（如果启用）
+            if self.show_watermark_bounds:
+                # 绘制水印边界
+                self.preview_canvas.create_rectangle(canvas_wx, canvas_wy, 
+                                                   canvas_wx + canvas_ww, canvas_wy + canvas_wh,
+                                                   outline="red", width=2, dash=(5, 5), tags="watermark_bounds")
+                
+                # 绘制拖拽检测区域
+                margin = 10
+                self.preview_canvas.create_rectangle(canvas_wx - margin, canvas_wy - margin, 
+                                                   canvas_wx + canvas_ww + margin, canvas_wy + canvas_wh + margin,
+                                                   outline="blue", width=1, dash=(2, 2), tags="drag_bounds")
+                
+                # 添加提示文本
+                self.preview_canvas.create_text(canvas_wx + canvas_ww/2, canvas_wy - 20,
+                                               text="可拖拽区域", fill="blue", font=("Arial", 10),
+                                               tags="drag_hint")
+        else:
+            self.watermark_position = None
+        
         self.preview_canvas.configure(scrollregion=self.preview_canvas.bbox("all"))
         
     def clear_preview(self):
@@ -682,6 +788,16 @@ class MainWindow:
         """原始尺寸"""
         # TODO: 实现原始尺寸显示
         pass
+    
+    def toggle_watermark_bounds(self):
+        """切换水印边界显示"""
+        self.show_watermark_bounds = not self.show_watermark_bounds
+        self.refresh_preview()
+        
+        if self.show_watermark_bounds:
+            self.update_status("已显示水印边界")
+        else:
+            self.update_status("已隐藏水印边界")
         
     def get_watermark_config(self) -> Dict[str, Any]:
         """获取水印配置"""
@@ -873,15 +989,40 @@ class MainWindow:
     def _export_images(self):
         """导出图片（后台线程）"""
         try:
+            print("开始导出图片...")
             watermark_config = self.get_watermark_config()
             export_config = self.get_export_config()
+            
+            # 验证输出目录
+            output_dir = export_config.get('output_dir', '')
+            if not output_dir:
+                print("输出目录未设置")
+                self.root.after(0, lambda: show_error("请选择输出目录"))
+                return
+                
+            if not os.path.exists(output_dir):
+                print(f"输出目录不存在: {output_dir}")
+                self.root.after(0, lambda: show_error("输出目录不存在，请重新选择"))
+                return
+                
+            if not os.access(output_dir, os.W_OK):
+                print(f"输出目录没有写权限: {output_dir}")
+                self.root.after(0, lambda: show_error("输出目录没有写权限，请选择其他目录"))
+                return
+            
+            print(f"导出配置: {export_config}")
+            print(f"水印配置: {watermark_config}")
             
             total = len(self.image_manager.images)
             success_count = 0
             error_count = 0
             
+            print(f"总共需要处理 {total} 张图片")
+            
             for i, img_item in enumerate(self.image_manager.images):
                 try:
+                    print(f"处理第 {i+1}/{total} 张图片: {img_item.file_path}")
+                    
                     # 生成输出文件名
                     output_filename = generate_output_filename(
                         img_item.file_path,
@@ -889,34 +1030,48 @@ class MainWindow:
                         export_config['prefix'],
                         export_config['suffix']
                     )
+                    print(f"生成文件名: {output_filename}")
                     
                     # 确保文件名唯一
                     output_filename = ensure_unique_filename(
                         export_config['output_dir'], output_filename
                     )
+                    print(f"确保文件名唯一后: {output_filename}")
                     
                     output_path = os.path.join(export_config['output_dir'], output_filename)
+                    print(f"完整输出路径: {output_path}")
                     
                     # 处理图片
-                    if self.watermark_engine.process_image(
+                    result = self.watermark_engine.process_image(
                         img_item.file_path, watermark_config, output_path, export_config
-                    ):
+                    )
+                    
+                    if result:
+                        print(f"图片导出成功: {output_path}")
                         success_count += 1
                     else:
+                        print(f"图片导出失败: {img_item.file_path}")
                         error_count += 1
                         
                 except Exception as e:
                     print(f"导出失败 {img_item.file_path}: {e}")
+                    import traceback
+                    traceback.print_exc()
                     error_count += 1
                 
                 # 更新进度
                 progress = (i + 1) / total * 100
+                print(f"进度: {progress:.1f}% ({i+1}/{total})")
                 self.root.after(0, self._update_progress, progress, i + 1, total)
                 
             # 导出完成
+            print(f"导出完成: 成功 {success_count} 张，失败 {error_count} 张")
             self.root.after(0, self._export_complete, success_count, error_count)
             
         except Exception as e:
+            print(f"导出过程出错: {e}")
+            import traceback
+            traceback.print_exc()
             self.root.after(0, lambda: show_error(f"导出过程出错: {e}"))
             
     def _update_progress(self, progress, current, total):
@@ -934,27 +1089,145 @@ class MainWindow:
         """更新状态栏"""
         self.status_label.configure(text=message)
         
-    def on_drop(self, event):
-        """拖拽文件事件"""
-        try:
-            files = event.data.split()
-            image_files = []
+    def on_canvas_click(self, event):
+        """画布点击事件"""
+        self.drag_start_x = event.x
+        self.drag_start_y = event.y
+        self.is_dragging = False
+        
+        # 保存拖拽开始时的偏移值
+        self.drag_start_offset_x = self.offset_x.get()
+        self.drag_start_offset_y = self.offset_y.get()
+        
+        # 检查是否点击在水印区域
+        if self.watermark_position and self.is_point_in_watermark(event.x, event.y):
+            self.update_status("点击水印区域，可以拖拽调整位置")
+            self.preview_canvas.configure(cursor="hand2")
+        else:
+            self.update_status("点击图片其他区域")
+            self.preview_canvas.configure(cursor="crosshair")
             
-            for file_path in files:
-                file_path = file_path.strip('{}')  # 移除可能的大括号
-                if os.path.isfile(file_path) and is_supported_image(file_path):
-                    image_files.append(file_path)
-                elif os.path.isdir(file_path):
-                    from utils import get_image_files_from_folder
-                    folder_files = get_image_files_from_folder(file_path)
-                    image_files.extend(folder_files)
-                    
-            if image_files:
-                success, error = self.image_manager.add_images(image_files)
-                self.update_image_list()
-                self.update_status(f"拖拽导入完成: 成功 {success} 张，失败 {error} 张")
-        except Exception as e:
-            print(f"拖拽处理失败: {e}")
+    def on_canvas_motion(self, event):
+        """画布鼠标移动事件 - 改变光标样式以提高用户体验"""
+        if self.watermark_position and self.is_point_in_watermark(event.x, event.y):
+            # 鼠标在水印区域时显示手型光标
+            if self.preview_canvas.cget("cursor") != "hand2":
+                self.preview_canvas.configure(cursor="hand2")
+        else:
+            # 鼠标不在水印区域时显示十字光标
+            if self.preview_canvas.cget("cursor") != "crosshair":
+                self.preview_canvas.configure(cursor="crosshair")
+        
+    def on_canvas_drag(self, event):
+        """画布拖拽事件"""
+        if not self.image_manager.get_current_image():
+            return
+        
+        # 检查是否应该开始拖拽（基于初始点击位置）
+        if (self.watermark_position and 
+            self.is_point_in_watermark(self.drag_start_x, self.drag_start_y)):
+            
+            if not self.is_dragging:
+                self.is_dragging = True
+                self.preview_canvas.configure(cursor="hand2")
+                self.update_status("正在拖拽水印...")
+            
+            # 计算相对于拖拽起始点的偏移（转换为实际图片坐标）
+            dx = (event.x - self.drag_start_x) / self.canvas_scale
+            dy = (event.y - self.drag_start_y) / self.canvas_scale
+            
+            # 基于拖拽起始时的偏移值计算新的偏移值
+            new_x = self.drag_start_offset_x + int(dx)
+            new_y = self.drag_start_offset_y + int(dy)
+            
+            # 扩大偏移范围，允许更大的拖拽区域
+            new_x = max(-1000, min(1000, new_x))  # 从-200~200扩大到-1000~1000
+            new_y = max(-1000, min(1000, new_y))  # 从-200~200扩大到-1000~1000
+            
+            # 更新UI变量
+            self.offset_x.set(new_x)
+            self.offset_y.set(new_y)
+            
+            # 取消之前的刷新定时器以避免累积延迟
+            self._cancel_refresh_timer()
+            
+            # 立即刷新预览以提高响应性
+            # 使用更短的时间间隔来减少延迟感
+            self._refresh_timer = self.root.after(30, self._delayed_refresh)  # 从100ms减少到30ms
+    
+    def on_canvas_release(self, event):
+        """画布释放事件"""
+        if self.is_dragging:
+            # 拖拽结束，保存位置到配置
+            self._save_dragged_position()
+            self.preview_canvas.configure(cursor="crosshair")
+            self.update_status("水印位置已更新")
+            
+            # 立即刷新预览以显示最终位置
+            self._cancel_refresh_timer()
+            self.refresh_preview()
+        self.is_dragging = False
+    
+    def on_canvas_enter(self, event):
+        """鼠标进入画布"""
+        self.preview_canvas.configure(cursor="crosshair")
+    
+    def on_canvas_leave(self, event):
+        """鼠标离开画布"""
+        self.preview_canvas.configure(cursor="")
+    
+    def on_tree_click(self, event):
+        """图片列表点击事件"""
+        # 让默认的树形控件处理选择
+        pass
+    
+    # 文件拖拽功能已移除
+    
+    def is_point_in_watermark(self, x, y):
+        """检查点是否在水印区域内"""
+        if not self.watermark_position:
+            return False
+        
+        wx, wy, ww, wh = self.watermark_position
+        
+        # 扩大检测区域，使拖拽更容易
+        margin = 30  # 从10增加到30，使拖拽区域更大
+        return (wx - margin <= x <= wx + ww + margin and 
+                wy - margin <= y <= wy + wh + margin)
+    
+
+    
+    def _save_dragged_position(self):
+        """保存拖拽后的位置"""
+        # 位置已经通过UI变量更新，这里可以添加额外的保存逻辑
+        pass
+    
+    def _delayed_refresh(self):
+        """延迟刷新预览"""
+        self._refresh_timer = None
+        self.refresh_preview()
+        
+    def _cancel_refresh_timer(self):
+        """取消刷新定时器"""
+        if hasattr(self, '_refresh_timer') and self._refresh_timer is not None:
+            self.root.after_cancel(self._refresh_timer)
+            self._refresh_timer = None
+    
+    def _calculate_watermark_position(self, image_size, watermark_size, watermark_config):
+        """计算水印在图片中的位置和尺寸"""
+        from utils import calculate_watermark_position
+        
+        # 计算水印位置
+        pos_x, pos_y = calculate_watermark_position(
+            image_size,
+            watermark_size,
+            watermark_config['position_preset'],
+            watermark_config['offset_x'],
+            watermark_config['offset_y'],
+            watermark_config.get('padding', 10)
+        )
+        
+        return (pos_x, pos_y, watermark_size[0], watermark_size[1])
             
     def on_closing(self):
         """窗口关闭事件"""

@@ -1,16 +1,16 @@
 {
   "watermark": {
     "type": "text",
-    "text_content": "tsetsfdsafasfasfaaaa",
-    "font_family": "Arial",
-    "font_size": 11,
-    "color": "#000000",
-    "opacity": 80,
-    "position_preset": "bottom_right",
-    "offset_x": -63,
-    "offset_y": -69,
+    "text_content": "sfafafadfafdaf",
+    "font_family": "MingLiU-ExtB",
+    "font_size": 69,
+    "color": "#e06779",
+    "opacity": 100,
+    "position_preset": "top_right",
+    "offset_x": -672,
+    "offset_y": 299,
     "padding": 10,
-    "rotation": 19
+    "rotation": 51
   },
   "export": {
     "format": "JPEG",
@@ -18,7 +18,7 @@
     "naming_rule": "keep_original",
     "prefix": "wm_",
     "suffix": "_watermarked",
-    "output_dir": ""
+    "output_dir": "D:/Download"
   },
   "ui": {
     "thumbnail_size": 120,

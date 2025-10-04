@@ -21,19 +21,69 @@ class WatermarkEngine:
         if cache_key in self.font_cache:
             return self.font_cache[cache_key]
         
+        # 尝试多种方式获取字体
+        font = None
+        
+        # 1. 尝试直接使用字体名称
         try:
-            # 尝试使用系统字体
             font = ImageFont.truetype(font_family, font_size)
             self.font_cache[cache_key] = font
+            print(f"创建新字体(直接): {font_family}, 大小: {font_size}")  # 调试信息
             return font
-        except Exception:
+        except Exception as e:
+            print(f"字体创建失败(直接): {font_family}, 大小: {font_size}, 错误: {e}")  # 调试信息
+        
+        # 2. 尝试使用字体名称映射
+        font_mapping = {
+            'System': 'arial.ttf',
+            'Default': 'arial.ttf',
+            'TkDefaultFont': 'arial.ttf',
+            'TkTextFont': 'arial.ttf',
+            'TkFixedFont': 'cour.ttf',
+            'TkMenuFont': 'arial.ttf',
+            'TkHeadingFont': 'arialbd.ttf',
+            'TkCaptionFont': 'arial.ttf',
+            'TkSmallCaptionFont': 'arial.ttf',
+            'TkIconFont': 'arial.ttf',
+            'TkTooltipFont': 'arial.ttf'
+        }
+        
+        # 如果是映射中的字体，尝试使用对应的字体文件
+        if font_family in font_mapping:
             try:
-                # 回退到默认字体
-                font = ImageFont.load_default()
+                font = ImageFont.truetype(font_mapping[font_family], font_size)
                 self.font_cache[cache_key] = font
+                print(f"创建新字体(映射): {font_mapping[font_family]}, 大小: {font_size}")  # 调试信息
                 return font
-            except Exception:
-                return None
+            except Exception as e:
+                print(f"字体创建失败(映射): {font_mapping[font_family]}, 大小: {font_size}, 错误: {e}")  # 调试信息
+        
+        # 3. 尝试使用一些常见的字体文件
+        common_fonts = ['arial.ttf', 'simhei.ttf', 'simsun.ttc', 'msyh.ttc', 'cour.ttf', 'arialbd.ttf']
+        for font_file in common_fonts:
+            try:
+                font = ImageFont.truetype(font_file, font_size)
+                self.font_cache[cache_key] = font
+                print(f"创建新字体(通用): {font_file}, 大小: {font_size}")  # 调试信息
+                return font
+            except Exception as e:
+                print(f"字体创建失败(通用): {font_file}, 大小: {font_size}, 错误: {e}")  # 调试信息
+        
+        # 4. 最后的回退方案 - 使用默认字体
+        try:
+            font = ImageFont.load_default()
+            self.font_cache[cache_key] = font
+            print(f"创建新字体(默认): 大小: {font_size}")  # 调试信息
+            return font
+        except Exception as e:
+            print(f"字体创建失败(默认): 大小: {font_size}, 错误: {e}")  # 调试信息
+        
+        # 如果所有方法都失败，返回None
+        return None
+    
+    def clear_font_cache(self):
+        """清空字体缓存"""
+        self.font_cache.clear()
     
     def create_text_watermark(
         self, 
@@ -155,6 +205,8 @@ class WatermarkEngine:
     ) -> Image.Image:
         """将水印应用到图片上"""
         try:
+            print(f"应用水印前图片模式: {image.mode}")
+            
             # 旋转水印
             if rotation != 0:
                 watermark = watermark.rotate(rotation, expand=True, fillcolor=(0, 0, 0, 0))
@@ -164,19 +216,35 @@ class WatermarkEngine:
                 image.size, watermark.size, position_preset, offset_x, offset_y, padding
             )
             
-            # 创建输出图像
-            if image.mode != 'RGBA':
-                output = image.convert('RGBA')
-            else:
+            # 如果原图是RGBA模式，可以直接应用水印
+            if image.mode == 'RGBA':
+                print("原图是RGBA模式，直接应用水印")
                 output = image.copy()
+                output.paste(watermark, position, watermark)
+                return output
             
-            # 粘贴水印
-            output.paste(watermark, position, watermark)
+            # 如果原图是RGB模式，需要特殊处理
+            if image.mode == 'RGB':
+                print("原图是RGB模式，使用RGB方式应用水印")
+                # 创建一个临时的RGBA图像用于处理水印
+                temp_image = image.convert('RGBA')
+                temp_image.paste(watermark, position, watermark)
+                # 转换回RGB模式
+                output = temp_image.convert('RGB')
+                return output
             
+            # 其他模式，转换为RGBA处理后再转回原模式
+            print(f"原图是{image.mode}模式，转换为RGBA处理")
+            original_mode = image.mode
+            temp_image = image.convert('RGBA')
+            temp_image.paste(watermark, position, watermark)
+            output = temp_image.convert(original_mode)
             return output
             
         except Exception as e:
             print(f"应用水印失败: {e}")
+            import traceback
+            traceback.print_exc()
             return image
     
     def process_image(
@@ -188,23 +256,41 @@ class WatermarkEngine:
     ) -> bool:
         """处理单张图片"""
         try:
+            print(f"开始处理图片: {image_path}")
+            print(f"输出路径: {output_path}")
+            
+            # 检查输入文件是否存在
+            if not os.path.exists(image_path):
+                print(f"输入文件不存在: {image_path}")
+                return False
+                
             # 打开原始图片
             with Image.open(image_path) as image:
+                print(f"成功打开图片: {image_path}, 模式: {image.mode}, 尺寸: {image.size}")
+                
                 # 转换为RGB模式（用于JPEG输出）
-                if export_config.get('format') == 'JPEG' and image.mode in ('RGBA', 'LA'):
-                    # 创建白色背景
-                    background = Image.new('RGB', image.size, (255, 255, 255))
-                    if image.mode == 'RGBA':
-                        background.paste(image, mask=image.split()[-1])
-                    else:
-                        background.paste(image)
-                    image = background
-                elif export_config.get('format') == 'PNG' and image.mode != 'RGBA':
-                    image = image.convert('RGBA')
+                if export_config.get('format') == 'JPEG':
+                    if image.mode in ('RGBA', 'LA'):
+                        # 创建白色背景
+                        print("转换RGBA图片为RGB模式用于JPEG输出")
+                        background = Image.new('RGB', image.size, (255, 255, 255))
+                        if image.mode == 'RGBA':
+                            background.paste(image, mask=image.split()[-1])
+                        else:
+                            background.paste(image)
+                        image = background
+                    elif image.mode != 'RGB':
+                        print(f"转换{image.mode}图片为RGB模式用于JPEG输出")
+                        image = image.convert('RGB')
+                elif export_config.get('format') == 'PNG':
+                    if image.mode != 'RGBA':
+                        print(f"转换{image.mode}图片为RGBA模式用于PNG输出")
+                        image = image.convert('RGBA')
                 
                 # 创建水印
                 watermark = None
                 if watermark_config.get('type') == 'text':
+                    print("创建文本水印")
                     watermark = self.create_text_watermark(
                         watermark_config.get('text_content', ''),
                         watermark_config.get('font_family', 'Arial'),
@@ -219,14 +305,18 @@ class WatermarkEngine:
                 elif watermark_config.get('type') == 'image':
                     image_watermark_path = watermark_config.get('image_path')
                     if image_watermark_path and os.path.exists(image_watermark_path):
+                        print(f"创建图片水印: {image_watermark_path}")
                         watermark = self.create_image_watermark(
                             image_watermark_path,
                             watermark_config.get('scale', 1.0),
                             watermark_config.get('opacity', 80)
                         )
+                    else:
+                        print(f"图片水印路径无效或不存在: {image_watermark_path}")
                 
                 # 应用水印
                 if watermark:
+                    print("应用水印到图片")
                     image = self.apply_watermark(
                         image, watermark,
                         watermark_config.get('position_preset', 'bottom_right'),
@@ -235,23 +325,61 @@ class WatermarkEngine:
                         watermark_config.get('padding', 10),
                         watermark_config.get('rotation', 0)
                     )
+                    print(f"应用水印后图片模式: {image.mode}")
+                
+                # 保存图片前的模式转换
+                if export_config.get('format') == 'JPEG':
+                    if image.mode in ('RGBA', 'LA'):
+                        # 创建白色背景
+                        print("转换RGBA图片为RGB模式用于JPEG输出")
+                        background = Image.new('RGB', image.size, (255, 255, 255))
+                        if image.mode == 'RGBA':
+                            background.paste(image, mask=image.split()[-1])
+                        else:
+                            background.paste(image)
+                        image = background
+                    elif image.mode != 'RGB':
+                        print(f"转换{image.mode}图片为RGB模式用于JPEG输出")
+                        image = image.convert('RGB')
+                    print(f"最终图片模式: {image.mode}")
+                elif export_config.get('format') == 'PNG':
+                    if image.mode != 'RGBA':
+                        print(f"转换{image.mode}图片为RGBA模式用于PNG输出")
+                        image = image.convert('RGBA')
+                    print(f"最终图片模式: {image.mode}")
                 
                 # 保存图片
                 save_kwargs = {}
                 if export_config.get('format') == 'JPEG':
                     save_kwargs['quality'] = export_config.get('jpeg_quality', 85)
                     save_kwargs['optimize'] = True
+                    print(f"保存为JPEG格式，质量: {save_kwargs['quality']}")
                 elif export_config.get('format') == 'PNG':
                     save_kwargs['optimize'] = True
+                    print("保存为PNG格式")
                 
                 # 确保输出目录存在
-                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                output_dir = os.path.dirname(output_path)
+                print(f"确保输出目录存在: {output_dir}")
+                os.makedirs(output_dir, exist_ok=True)
                 
+                # 检查输出目录是否有写权限
+                if not os.access(output_dir, os.W_OK):
+                    print(f"输出目录没有写权限: {output_dir}")
+                    return False
+                
+                print(f"保存图片到: {output_path}")
                 image.save(output_path, export_config.get('format'), **save_kwargs)
+                print(f"图片保存成功: {output_path}")
                 return True
                 
+        except PermissionError as e:
+            print(f"权限错误，无法保存图片到 {output_path}: {e}")
+            return False
         except Exception as e:
             print(f"处理图片失败 {image_path}: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def _hex_to_rgba(self, hex_color: str, alpha: int = 255) -> Tuple[int, int, int, int]:
