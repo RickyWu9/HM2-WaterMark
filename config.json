@@ -1,0 +1,28 @@
+{
+  "watermark": {
+    "type": "text",
+    "text_content": "tsetsfdsafasfasfaaaa",
+    "font_family": "Arial",
+    "font_size": 11,
+    "color": "#000000",
+    "opacity": 80,
+    "position_preset": "bottom_right",
+    "offset_x": -63,
+    "offset_y": -69,
+    "padding": 10,
+    "rotation": 19
+  },
+  "export": {
+    "format": "JPEG",
+    "jpeg_quality": 85,
+    "naming_rule": "keep_original",
+    "prefix": "wm_",
+    "suffix": "_watermarked",
+    "output_dir": ""
+  },
+  "ui": {
+    "thumbnail_size": 120,
+    "preview_size": 800,
+    "theme": "light"
+  }
+}

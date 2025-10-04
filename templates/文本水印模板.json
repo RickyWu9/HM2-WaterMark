@@ -1,0 +1,27 @@
+{
+  "name": "文本水印模板",
+  "description": "简单的文本水印，位于右下角",
+  "created_time": "2025-10-04T14:33:34.859517",
+  "watermark_config": {
+    "type": "text",
+    "text_content": "Copyright © 2024",
+    "font_family": "Arial",
+    "font_size": 24,
+    "color": "#FFFFFF",
+    "opacity": 80,
+    "position_preset": "bottom_right",
+    "offset_x": 20,
+    "offset_y": 20,
+    "padding": 10,
+    "rotation": 0
+  },
+  "export_config": {
+    "format": "JPEG",
+    "jpeg_quality": 85,
+    "naming_rule": "suffix",
+    "prefix": "wm_",
+    "suffix": "_watermarked",
+    "output_dir": ""
+  },
+  "version": "1.0"
+}
