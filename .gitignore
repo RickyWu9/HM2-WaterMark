@@ -10,7 +10,6 @@ __pycache__/
 .Python
 build/
 develop-eggs/
-dist/
 downloads/
 eggs/
 .eggs/
@@ -144,7 +143,6 @@ Thumbs.db
 # Project specific ignores
 # Build artifacts
 build/
-dist/
 *.exe
 *.exe.manifest
 
