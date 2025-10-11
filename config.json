@@ -1,14 +1,14 @@
 {
   "watermark": {
     "type": "text",
-    "text_content": "sfafafadfafdaf",
+    "text_content": "sff",
     "font_family": "MingLiU-ExtB",
-    "font_size": 69,
+    "font_size": 78,
     "color": "#e06779",
-    "opacity": 100,
+    "opacity": 91,
     "position_preset": "top_right",
-    "offset_x": -672,
-    "offset_y": 299,
+    "offset_x": -603,
+    "offset_y": 99,
     "padding": 10,
     "rotation": 51
   },

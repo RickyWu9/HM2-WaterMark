@@ -685,9 +685,21 @@ class MainWindow:
                 
                 # 应用水印并记录位置
                 if watermark:
+                    # 获取旋转角度
+                    rotation = watermark_config.get('rotation', 0)
+                    
+                    # 如果有旋转，需要计算旋转后的水印尺寸
+                    if rotation != 0:
+                        # 创建一个临时的水印图像来计算旋转后的尺寸
+                        temp_watermark = Image.new('RGBA', watermark.size, (0, 0, 0, 0))
+                        rotated_watermark = temp_watermark.rotate(rotation, expand=True)
+                        actual_watermark_size = rotated_watermark.size
+                    else:
+                        actual_watermark_size = watermark.size
+                    
                     # 计算水印在原始图片上的位置
                     watermark_pos = self._calculate_watermark_position(
-                        img.size, watermark.size, watermark_config
+                        img.size, actual_watermark_size, watermark_config
                     )
                     
                     img = self.watermark_engine.apply_watermark(
@@ -696,7 +708,7 @@ class MainWindow:
                         watermark_config['offset_x'],
                         watermark_config['offset_y'],
                         watermark_config.get('padding', 10),
-                        watermark_config.get('rotation', 0)
+                        rotation
                     )
                 else:
                     watermark_pos = None
@@ -1216,18 +1228,31 @@ class MainWindow:
     def _calculate_watermark_position(self, image_size, watermark_size, watermark_config):
         """计算水印在图片中的位置和尺寸"""
         from utils import calculate_watermark_position
+        from PIL import Image
+        
+        # 获取旋转角度
+        rotation = watermark_config.get('rotation', 0)
+        
+        # 如果有旋转，需要计算旋转后的水印尺寸
+        if rotation != 0:
+            # 创建一个临时的水印图像来计算旋转后的尺寸
+            temp_watermark = Image.new('RGBA', watermark_size, (0, 0, 0, 0))
+            rotated_watermark = temp_watermark.rotate(rotation, expand=True)
+            actual_watermark_size = rotated_watermark.size
+        else:
+            actual_watermark_size = watermark_size
         
         # 计算水印位置
         pos_x, pos_y = calculate_watermark_position(
             image_size,
-            watermark_size,
+            actual_watermark_size,
             watermark_config['position_preset'],
             watermark_config['offset_x'],
             watermark_config['offset_y'],
             watermark_config.get('padding', 10)
         )
         
-        return (pos_x, pos_y, watermark_size[0], watermark_size[1])
+        return (pos_x, pos_y, actual_watermark_size[0], actual_watermark_size[1])
             
     def on_closing(self):
         """窗口关闭事件"""
